@@ -18,6 +18,13 @@ class RNN:
         self.defaultVec = lambda : np.zeros((wvecDim,))
         self.rho = rho
 
+    def to_categorical(self, y):
+        nb_classes = np.max(y) + 1
+        Y = np.zeros((len(y), nb_classes))
+        for i in xrange(len(y)):
+            Y[i, y[i]] = 1
+        return Y
+
     def softmax(self,w):
         w = numpy.array(w)
         maxes = numpy.amax(w, axis=1)
@@ -111,19 +118,26 @@ class RNN:
         #  - guess: this is a running list of guess that our model makes
         #     (we will use both correct and guess to make our confusion matrix)
         ################
+        # Base case, if leaf then return
         if node.isLeaf:
             return cost, total + 1
 
-
+        # Recursion case
         node.hActs1= np.max(np.dot(np.vstack(node.left.hActs1, \
                                          node.right.hActs1), self.W) + \
                              self.bs , 0)
 
         node.probs = self.softmax(np.dot(node.hActs1, self.Ws) + self.bs)
         total += 1
-        #cost += - np.dot(
+        y = np.zeros((1, 5))
+        y[node.label] = 1
+        correct.append(node.label)
+        guess.append(np.argmax(node.probs))
+        cost += - np.dot(y , np.log(node.probs))
 
-
+        # Recurse
+        forwardProp(node.left, correct, guess)
+        forwardProp(node.right, correct, guess)
 
     def backProp(self,node,error=None):
 
@@ -136,6 +150,30 @@ class RNN:
         #  - node: your current node in the parse tree
         #  - error: error that has been passed down from a previous iteration
         ################
+
+        # Base case for recursion
+        # Leaf node
+        if node.isLeaf:
+            # Update Params
+            return
+
+        # If the current node is a parent node
+        # Starting point to backprop
+        elif node.parent == None:
+            y = np.zeros((1, 5))
+            y[node.label] = 1
+            error = (node.probs - y)
+            self.dW = np.dot(node.hActs1.T , error)
+            ones = np.zeros_like(node.hActs1)
+            ones[np.where(node.hActs1 > 0)] = 1
+            error1 = np.dot(error, self.Ws.T) * ones
+            error_below = np.dot(error1, self.W.T)
+            # Error calucation
+            backProp(node.left, error_left)
+            backProp(node.right, error_right)
+
+        # updates for internal nodes
+
 
 
 
