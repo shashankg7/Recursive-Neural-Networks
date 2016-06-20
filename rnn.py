@@ -83,7 +83,7 @@ class RNN:
         self.dWs[:] = 0
         self.dbs[:] = 0
         self.dL = collections.defaultdict(self.defaultVec)
-        pdb.set_trace()
+        #pdb.set_trace()
         # Forward prop each tree in minibatch
         for tree in mbdata:
             c,tot = self.forwardProp(tree.root,correct,guess)
@@ -118,26 +118,35 @@ class RNN:
         #  - guess: this is a running list of guess that our model makes
         #     (we will use both correct and guess to make our confusion matrix)
         ################
-        # Base case, if leaf then return
         if node.isLeaf:
-            return cost, total + 1
+            node.hActs1 = self.L[:, node.word]
+            node.probs = self.softmax(np.dot(node.hActs1, self.Ws) + self.bs)
+            y = np.zeros(5)
+            y[node.label] = 1
+            correct.append(node.label)
+            guess.append(np.argmax(node.probs))
+            cl = - np.dot(y , np.log(node.probs))
+            return cl, 1
 
-        # Recursion case
-        node.hActs1= np.max(np.dot(np.vstack(node.left.hActs1, \
-                                         node.right.hActs1), self.W) + \
-                             self.bs , 0)
+        # Recurse
+        c, t = self.forwardProp(node.left, correct, guess)
+        cost += c
+        total += t
 
+        c, t = self.forwardProp(node.right, correct, guess)
+        cost += c
+        total += t
+
+        hidden = np.concatenate((node.left.hActs1, node.right.hActs2))
+        node.hActs1= np.max((np.dot(hidden,self.W) + self.bs) , 0)
         node.probs = self.softmax(np.dot(node.hActs1, self.Ws) + self.bs)
-        total += 1
         y = np.zeros((1, 5))
         y[node.label] = 1
         correct.append(node.label)
         guess.append(np.argmax(node.probs))
-        cost += - np.dot(y , np.log(node.probs))
+        ci = - np.dot(y , np.log(node.probs))
+        return ci, 1
 
-        # Recurse
-        forwardProp(node.left, correct, guess)
-        forwardProp(node.right, correct, guess)
 
     def backProp(self,node,error=None):
 
@@ -150,32 +159,38 @@ class RNN:
         #  - node: your current node in the parse tree
         #  - error: error that has been passed down from a previous iteration
         ################
+        yhat = node.probs
+        y = np.zeros(5)
+        y[node.label] = 1
+        error3 = yhat - y
+        error3 = error3.reshape((5,1))
+        h = node.hActs1.reshape((1, self.wvecDim))
+        self.dWs = np.dot(error3, h)
+        ones = np.ones_like(h)
+        ones[np.where(h <= 0)] = 0
 
-        # Base case for recursion
-        # Leaf node
         if node.isLeaf:
-            # Update Params
-            return
-
-        # If the current node is a parent node
-        # Starting point to backprop
-        elif node.parent == None:
-            y = np.zeros((1, 5))
-            y[node.label] = 1
-            error = (node.probs - y)
-            self.dW = np.dot(node.hActs1.T , error)
-            ones = np.zeros_like(node.hActs1)
-            ones[np.where(node.hActs1 > 0)] = 1
-            error1 = np.dot(error, self.Ws.T) * ones
-            error_below = np.dot(error1, self.W.T)
-            # Error calucation
-            backProp(node.left, error_left)
-            backProp(node.right, error_right)
-
-        # updates for internal nodes
+            #yhat = node.probs
+            #y = np.zeros(5)
+            #y[node.label] = 1
+            #error3 = yhat - y
+            #error3 = error3.reshape((5,1))
+            #h = node.hActs1.reshape((1, self.wvecDim))
+            #self.dWs = np.dot(error3, h)
+            #ones = np.ones_like(h)
+            #ones[np.where(h <= 0)] = 0
+            error2 = np.dot(error3.reshape((1, 5)), self.Ws) * ones
+            error1 = np.dot(error2, self.W)
+            self.dL[:, node.word] = np.dot(error3, self.Ws)
+            backProp(node.left, error1[:self.wvecDim])
+            backProp(node.right, erro1[self.wvecDim:])
 
 
-
+        error2 = (np.dot(error3.reshape((1, 5)), self.Ws) + error) * ones
+        error1 = np.dot(error2, self.W)
+        self.dW = np.dot(np.concatenate(node.left.hActs1, node.right.hActs1).reshape(1, self.wvecDim), self.W)
+        backProp(node.left, error1[:self.wvecDim])
+        backProp(node.right, erro1[self.wvecDim:])
 
     def updateParams(self,scale,update,log=False):
         """
