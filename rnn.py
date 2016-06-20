@@ -1,6 +1,7 @@
 import numpy as np
 import collections
 import pdb
+import numpy
 # This is a simple Recursive Neural Netowrk with one ReLU Layer and a softmax layer
 # TODO: You must update the forward and backward propogation functions of this file.
 
@@ -25,13 +26,11 @@ class RNN:
             Y[i, y[i]] = 1
         return Y
 
-    def softmax(self,w):
-        w = numpy.array(w)
-        maxes = numpy.amax(w, axis=1)
-        maxes = maxes.reshape(maxes.shape[0], 1)
-        e = numpy.exp(w - maxes)
-        dist = e / numpy.sum(e, axis=1)
+    def softmax(self, w, t=1):
+        e = np.exp(w / t)
+        dist = e / np.sum(e)
         return dist
+
 
     def initParams(self):
         np.random.seed(12341)
@@ -87,12 +86,15 @@ class RNN:
         # Forward prop each tree in minibatch
         for tree in mbdata:
             c,tot = self.forwardProp(tree.root,correct,guess)
+            #print("One FP completed, sanity checking")
+            #pdb.set_trace()
             cost += c
             total += tot
         if test:
             return (1./len(mbdata))*cost,correct,guess,total
 
         # Back prop each tree in minibatch
+        #print("Starting backprop")
         for tree in mbdata:
             self.backProp(tree.root)
 
@@ -120,13 +122,16 @@ class RNN:
         ################
         if node.isLeaf:
             node.hActs1 = self.L[:, node.word]
-            node.probs = self.softmax(np.dot(node.hActs1, self.Ws) + self.bs)
+            #pdb.set_trace()
+            #node.probs = self.softmax(np.dot(node.hActs1, self.Ws) + self.bs)
+            node.probs = self.softmax(np.dot(self.Ws, node.hActs1) + self.bs)
             y = np.zeros(5)
             y[node.label] = 1
             correct.append(node.label)
             guess.append(np.argmax(node.probs))
-            cl = - np.dot(y , np.log(node.probs))
-            return cl, 1
+            cost += -1 * np.dot(y , np.log(node.probs))
+            total += 1
+            return cost, total
 
         # Recurse
         c, t = self.forwardProp(node.left, correct, guess)
@@ -137,35 +142,40 @@ class RNN:
         cost += c
         total += t
 
-        hidden = np.concatenate((node.left.hActs1, node.right.hActs2))
-        node.hActs1= np.max((np.dot(hidden,self.W) + self.bs) , 0)
-        node.probs = self.softmax(np.dot(node.hActs1, self.Ws) + self.bs)
-        y = np.zeros((1, 5))
+        #pdb.set_trace()
+        hidden = np.concatenate((node.left.hActs1, node.right.hActs1))
+        node.hActs1= np.maximum((np.dot(self.W, hidden) + self.b) , 0)
+        node.probs = self.softmax(np.dot(self.Ws, node.hActs1) + self.bs)
+        y = np.zeros(5)
         y[node.label] = 1
         correct.append(node.label)
         guess.append(np.argmax(node.probs))
-        ci = - np.dot(y , np.log(node.probs))
-        return ci, 1
+        cost += -1 * np.dot(y , np.log(node.probs))
+        total += 1
+        return cost, total
 
 
     def backProp(self,node,error=None):
 
         # Clear nodes
         node.fprop = False
-
         ################
         # TODO: Implement the recursive backProp function
         #  - you should update self.dWs, self.dbs, self.dW, self.db, and self.dL[node.word] accordingly
         #  - node: your current node in the parse tree
         #  - error: error that has been passed down from a previous iteration
         ################
+        #if node == None:
+        #    return
+
         yhat = node.probs
         y = np.zeros(5)
         y[node.label] = 1
         error3 = yhat - y
+        #pdb.set_trace()
         error3 = error3.reshape((5,1))
         h = node.hActs1.reshape((1, self.wvecDim))
-        self.dWs = np.dot(error3, h)
+        self.dWs += np.dot(error3, h)
         ones = np.ones_like(h)
         ones[np.where(h <= 0)] = 0
 
@@ -179,18 +189,24 @@ class RNN:
             #self.dWs = np.dot(error3, h)
             #ones = np.ones_like(h)
             #ones[np.where(h <= 0)] = 0
-            error2 = np.dot(error3.reshape((1, 5)), self.Ws) * ones
+            error2 = (np.dot(error3.reshape((1, 5)), self.Ws) + error) * ones
+            #pdb.set_trace()
             error1 = np.dot(error2, self.W)
-            self.dL[:, node.word] = np.dot(error3, self.Ws)
-            backProp(node.left, error1[:self.wvecDim])
-            backProp(node.right, erro1[self.wvecDim:])
+            self.dL[node.word] += (np.dot(error3.T, self.Ws) + error).reshape((self.wvecDim,))
+            return
+            #backProp(node.left, error1[:self.wvecDim])
+            #backProp(node.right, erro1[self.wvecDim:])
 
+        if node.parent != None:
+            error2 = (np.dot(error3.reshape((1, 5)), self.Ws) + error) * ones
+        else :
+            error2 = (np.dot(error3.reshape((1, 5)), self.Ws)) * ones
 
-        error2 = (np.dot(error3.reshape((1, 5)), self.Ws) + error) * ones
         error1 = np.dot(error2, self.W)
-        self.dW = np.dot(np.concatenate(node.left.hActs1, node.right.hActs1).reshape(1, self.wvecDim), self.W)
-        backProp(node.left, error1[:self.wvecDim])
-        backProp(node.right, erro1[self.wvecDim:])
+        self.dW += np.dot(error2.T, np.concatenate((node.left.hActs1, node.right.hActs1)).reshape(1, 2 * self.wvecDim))
+        #pdb.set_trace()
+        self.backProp(node.left, error1[:, :self.wvecDim])
+        self.backProp(node.right, error1[:, self.wvecDim:])
 
     def updateParams(self,scale,update,log=False):
         """
@@ -261,7 +277,7 @@ class RNN:
                 count+=1
 
         if 0.001 > err2/count:
-            print "Grad Check Passed for dL"
+            print "Grad Check Passed for dL: Sum of Error = %.9f" % (err2/count)
         else:
             print "Grad Check Failed for dL: Sum of Error = %.9f" % (err2/count)
 
