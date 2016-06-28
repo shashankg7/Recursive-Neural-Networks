@@ -8,8 +8,8 @@ set -x
 
 # training params
 epochs=30
-step=1e-1
-wvecDim=30
+step=1e-2
+wvecDim=15
 
 # for RNN2 only, otherwise doesnt matter
 middleDim=25
